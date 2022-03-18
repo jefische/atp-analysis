@@ -317,7 +317,13 @@ write.csv(r_for_modeling, file='r_for_modeling.csv')
 ##################
 # Modeling glm() #
 ##################
-r_for_modeling <- read.csv('r_for_modeling.csv', header = TRUE)
+filea <- 'C:/Users/blue_/Documents/Kaggle/atp_tennis/git_data/r_for_modeling.csv'
+r_for_modeling <- read.csv(file=filea, header = TRUE)
+
+wimbledon_2016 <- 218
+wimbledon_2017 <- 372
+us_open_2017 <- 385
+
 
 train <- r_for_modeling[r_for_modeling$tourney_index %in% wimbledon_2016:(us_open_2017-1),]
 test <- r_for_modeling[r_for_modeling$tourney_index==us_open_2017,]
