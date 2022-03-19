@@ -363,7 +363,8 @@ m1.gbm <- gbm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win
               n.trees = 3000, 
               interaction.depth = 2,
               shrinkage = 0.05,
-              cv.folds = 5)
+              cv.folds = 5,
+              verbose = T)
 
 m1.gbm
 summary(m1.gbm) # will not work if P1Wins is a factor, must be an integer for distribution='bernoulli'
