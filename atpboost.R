@@ -3,18 +3,16 @@
 ##########################
 library(tidyverse)
 library(lubridate)
-library(scales)
-library(reshape2)
-library(car) #scatterplot matrix function
 library(broom) # augment() to extract dataframe from glm object
 
-filea <- 'C:/Users/blue_/Documents/Kaggle/atp_tennis/git_data/atp_matches_'
+filea <- './git_data/atp_matches_'
 
 df_final <- data.frame()
 for(i in 2015:2019){
   df_use <- read.csv(file=paste0(filea, i, ".csv"))
   df_final <- rbind(df_final, df_use)
 }
+rm(df_use)
 
 ########################
 # Variable Engineering #
@@ -22,8 +20,6 @@ for(i in 2015:2019){
 
 df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d", origin = "2015-01-01")
 
-
-firstDate <- as.Date("2015-01-04")
 matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
 matches <- matches[,c(11,19,5:7,1:4,26,24,25,27,12,14:15,20,22,23,28:46,48)]
 matches <- matches %>%
@@ -85,7 +81,7 @@ matches$P_Wsets <- matches$Wsets/(matches$Wsets+matches$Lsets)
 
 playersToElo <- new.env(hash=TRUE)
 matchesCount <- new.env(hash=TRUE)
-
+firstDate <- as.Date("2015-01-04")
 
 # Run computeElo for elo results in an environment indexed by player names
 computeElo <- function() {
@@ -149,9 +145,11 @@ updateElo <- function (plToElo, playerA, playerB, winner, level, matchDate,match
   plToElo[[playerB]] <- rbind(plToElo[[playerB]],data.frame(ranking=rB_new, date=matchDate, num=matchNum))
 }
 
+#Elo starting from 2015-2019
+computeElo()
 
-
-# Gives the highest elo ratings
+# Gives top n highest elo ratings
+n=20
 summaryPlayers <- function() {
   playersToMax <- data.frame(ranking=1500,meanr=1500,medianr=1500,name="Nobody")
   for (pl in ls(playersToElo)) {
@@ -164,11 +162,10 @@ summaryPlayers <- function() {
     playersToMax <- rbind(playersToMax,newRow)
   }
   
-  playersToMax <- playersToMax[order(playersToMax$ranking,decreasing=TRUE),]
+  playersToMax <- head(playersToMax[order(playersToMax$ranking,decreasing=TRUE),], n)
   return(playersToMax)
 }
 
-computeElo()
 
 length(playersToElo) # 809 players
 names(playersToElo) # to view all players
@@ -336,7 +333,8 @@ train <- train[!is.na(train$P2_P_Win),]
 train <- train[!is.na(train$P1_P_Sets),]
 train <- train[!is.na(train$P2_P_Sets),]
 
-m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets, 
+m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + 
+            P1_P_Sets + P2_P_Sets + P1_Ace_Sets + P2_Ace_Sets, 
           data=train, family = "binomial")
 summary(m1)
 
