@@ -55,6 +55,10 @@ for(i in 1:nrow(matches)){
     }
 }
 
+# Option to drop Davis cup matches
+drop <- which(grepl("Davis", matches$tourney_name)) #1225 matches (8% of total) 
+matches <- matches[-drop,]
+
 matches$tourney_index <- 1
 k=1
 for (i in 2:nrow(matches)){
@@ -98,6 +102,8 @@ matches$Lsets[matches$RET==1] <- NA
 
 matches$P_Wsets <- NA
 matches$P_Wsets <- matches$Wsets/(matches$Wsets+matches$Lsets)
+
+
 
 ## Elo calculations ##
 
@@ -273,15 +279,14 @@ for(idx in earliest:latest){
   Player_YOY_stats <- rbind(Player_YOY_stats, df_YOY)
 }
 
-wimbledon_2016 <- matches$tourney_index[matches$tourney_id=='2016-540'][1]
-wimbledon_2017 <- matches$tourney_index[matches$tourney_id=='2017-540'][1]
-us_open_2017 <- matches$tourney_index[matches$tourney_id=='2017-560'][1]
+doha_2016 <- matches$tourney_index[matches$tourney_id=='2016-0451'][1] # first tournament of 2016
+tour_finals_2019 <- matches$tourney_index[matches$tourney_id=='2019-0605'][1] # final tournament of 2019
 
-results <- matches[matches$tourney_index %in% wimbledon_2016:us_open_2017, 
+results <- matches[matches$tourney_index %in% doha_2016:tour_finals_2019, 
                    c('winner_name', 'loser_name', 'tourney_date', 'tourney_name', 'match_num', 'tourney_id',
                      'tourney_index', 'surface', 'draw_size', 'best_of', 'winner_rank', 'loser_rank')]
 
-modeling_df <- Player_YOY_stats[Player_YOY_stats$tourney_index %in% wimbledon_2016:us_open_2017,]
+modeling_df <- Player_YOY_stats[Player_YOY_stats$tourney_index %in% doha_2016:tour_finals_2019,]
 
 results_for_modeling <- merge(results, modeling_df, 
                               by.x = c("winner_name", "tourney_index", "tourney_name", "tourney_date"), 
@@ -299,8 +304,8 @@ results_for_modeling <- results_for_modeling[,c(5,1,4,3,6,7,2,8:15,17:29,31:40)]
 results_for_modeling <- results_for_modeling %>% arrange(tourney_index, match_num)
 
 
-#Randomly assign winners and losers to player 1/2 variables.
-set.seed(201608)
+#Randomly assign winners and losers to Player1, Player2 variables.
+set.seed(2016)
 r_for_modeling <- results_for_modeling %>%
   mutate(assign = runif(dim(results_for_modeling)[1]),
          Player1 = ifelse(assign <= .5, winner_name, loser_name),
@@ -326,34 +331,46 @@ r_for_modeling <- results_for_modeling %>%
          P2_P_Sets = ifelse(assign > .5, W_P_sets, L_P_sets),
          P1_Elo = ifelse(assign <= .5, W_Elo, L_Elo),
          P2_Elo = ifelse(assign > .5, W_Elo, L_Elo)) %>%
-  select(Player1, Player2, P1Wins, tourney_date, tourney_name, tourney_index, match_num, 
+  select(Player1, Player2, P1Wins, tourney_date, tourney_name, tourney_index, tourney_id, match_num, 
          P1_Rank, P2_Rank, P1_Country,  P1_Age, P1_Matches_Played, P1_Matches_Won, 
          P1_Matches_Lost, P1_P_Win, P1_P_Sets, P1_Ace_Sets, P1_Elo, P2_Country,P2_Age,
          P2_Matches_Played, P2_Matches_Won, P2_Matches_Lost, P2_P_Win, P2_P_Sets, P2_Ace_Sets, P2_Elo)
 
-write.csv(r_for_modeling, file='r_for_modeling.csv')
+#write.csv(r_for_modeling, file='r_for_modeling.csv')
 
 ##################
 # Modeling glm() #
 ##################
-filea <- 'C:/Users/blue_/Documents/Kaggle/atp_tennis/git_data/r_for_modeling.csv'
-r_for_modeling <- read.csv(file=filea)
+#filea <- 'C:/Users/blue_/Documents/Kaggle/atp_tennis/git_data/r_for_modeling.csv'
+#r_for_modeling <- read.csv(file=filea)
 
-wimbledon_2016 <- 218
-wimbledon_2017 <- 372
-us_open_2017 <- 385
+#wimbledon_2016 <- 218
+#wimbledon_2017 <- 372
+#us_open_2017 <- 385
 
+length(unique(r_for_modeling$tourney_index)) # 268 tournaments
 
-train <- r_for_modeling[r_for_modeling$tourney_index %in% wimbledon_2016:(us_open_2017-1),]
-test <- r_for_modeling[r_for_modeling$tourney_index==us_open_2017,]
+# Train on 75% or 201 tournaments (Doha 2016 (67) - ATP Next Gen Finals 2018 (267))
+atp_next_gen_2018 <- 267
+tour_finals_2018 <- 268
 
-sapply(train, function(x) sum(is.na(x))) # drop records with missing ranking
+train <- r_for_modeling[r_for_modeling$tourney_index %in% doha_2016:atp_next_gen_2018,]
+test <- r_for_modeling[r_for_modeling$tourney_index %in% tour_finals_2018:tour_finals_2019,]
+
+sapply(test, function(x) sum(is.na(x)))
+sapply(train, function(x) sum(is.na(x))) # drop records with missing data. Note glm() will do case wise deletion
 train <- train[!is.na(train$P1_Rank),]
 train <- train[!is.na(train$P2_Rank),]
 train <- train[!is.na(train$P1_P_Win),]
 train <- train[!is.na(train$P2_P_Win),]
 train <- train[!is.na(train$P1_P_Sets),]
 train <- train[!is.na(train$P2_P_Sets),]
+
+m1 <- glm(P1Wins ~ P1_Elo + P2_Elo, 
+          data=train, family = "binomial")
+
+m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank, 
+          data=train, family = "binomial")
 
 m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + 
             P1_P_Sets + P2_P_Sets + P1_Ace_Sets + P2_Ace_Sets, 
@@ -366,16 +383,20 @@ p.win <- round(p.glm)
 table(Predicted=p.win, Actual=test$P1Wins)
 sum(diag(table(p.win, test$P1Wins)))/sum(table(p.win, test$P1Wins))
 
-# Elo 79% accuracy
-# Elo + ranking 81% accuracy
-# Elo + ranking + PWin + PSets 82% accuracy
+# Elo 72% accuracy
+# Elo + ranking 72% accuracy
+# Elo + ranking + PWin + PSets 75% accuracy
 
 ##################
 # Modeling gbm() #
 ##################
-library(gbm) # gbm.perf()
+library(gbm) # gbm.perf(), gbm() cannot have missing values
 library(caret) # train(), trainControl(), getModelInfo(), resamples()
 source('build_tree.R') # converts gbm.object to data.tree for plotting
+
+#case-wise deletion from glm()
+drop <- as.integer(m1$na.action)
+train <- train[-drop,]
 
 m1.gbm <- gbm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets, 
               data=train, 
@@ -384,27 +405,27 @@ m1.gbm <- gbm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win
               interaction.depth = 2,
               shrinkage = 0.05,
               cv.folds = 5,
-              verbose = T)
+              verbose = FALSE)
 
 m1.gbm
 summary(m1.gbm) # will not work if P1Wins is a factor, must be an integer for distribution='bernoulli'
 
 #Best num of iterations
-best.iter = gbm.perf(m1.gbm, method = 'OOB') #recommends 292
-best.iter = gbm.perf(m1.gbm, method = 'cv') #need cv.folds arg >1 in gbm() call for this. recommends 1101
+best.iter = gbm.perf(m1.gbm, method = 'OOB') #recommends 275
+best.iter = gbm.perf(m1.gbm, method = 'cv') #need cv.folds arg >1 in gbm() call for this. recommends 1204
 
 print(pretty.gbm.tree(m1.gbm, i.tree = 1))
 plot(build_tree(m1.gbm, i.tree = 1))
 
 # Predictions are on the canonical scale, which for binomial is the log-odds scale. 
 # You can use the type="response" when predicting to put it on the probability scale.
-p.boost <- predict(m1.gbm, newdata = test, type = 'response')
+p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = 1204)
 p.boost <- round(p.boost)
 
 table(Predicted=p.boost, Actual=test$P1Wins)
-sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins)) #81%
+sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins)) #
 
-#n.trees = 1101, accuracy = 79%
+#n.trees = 1204, accuracy = 76%
 
 ###################################
 # Modeling gbm with caret train() #
@@ -424,17 +445,23 @@ m1.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + 
 
 m1.gbm.caret
 summary(m1.gbm.caret)
-p.boost.caret <- predict(m1.gbm.caret, newdata = test)
-p.boost.caret
 
-table(Predicted=p.boost.caret, Actual=test$P1Wins)
-sum(diag(table(p.boost.caret, test$P1Wins)))/sum(table(p.boost.caret, test$P1Wins)) #80%
+# With caret gbm object, predict will perform case-wise deletion on test set.
+# Thus to evaluate perform need to drop NA records
+test_p <- na.omit(test %>% select(P1Wins, P1_Elo, P2_Elo, P1_Rank, P2_Rank, P1_P_Win, P2_P_Win, P1_P_Sets, P2_P_Sets))
+
+# predict in this case creates a factor variable for some reason
+p.boost.caret <- predict(m1.gbm.caret, newdata = test_p, type = 'raw')
+
+table(Predicted=p.boost.caret, Actual=test_p$P1Wins)
+sum(diag(table(p.boost.caret, test_p$P1Wins)))/sum(table(p.boost.caret, test_p$P1Wins)) #76%
 
 
-myGrid <- expand.grid(n.trees = c(1100),
+myGrid <- expand.grid(n.trees = c(150, 1200, 2000),
                       interaction.depth = c(1, 2, 3, 4, 5, 6),
                       shrinkage = c(0.01, 0.10, 0.15),
                       n.minobsinnode = c(10))
+trainctrl <- trainControl(method = 'cv', number = 5, returnResamp = 'all')
 
 m2.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets, 
                       data=train, 
@@ -445,13 +472,21 @@ m2.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + 
                       tuneGrid = myGrid)
 
 m2.gbm.caret
+m2.gbm.caret$bestTune # shows best parameter results: n.trees=2000, depth=4, shrinkage=0.01, minobsinnode=10
+m2.gbm.caret$results # results for all combinations of myGrid (averaging Accuracy by fold)
+m2.gbm.caret$control$index$Fold1 # obs used in each train fold (6268) in this case
+m2.gbm.caret$control$indexOut$Resample1 # obs used in each test fold (1567) in this case
+m2.gbm.caret$resample # dataframe to view parameter results by fold
+m2.gbm.caret$resampledCM # results for each confusion matrix (cells 1 and 4 are true positives and true negatives)
+
 summary(m2.gbm.caret)
-p2.boost.caret <- predict(m2.gbm.caret, newdata = test)
+p2.boost.caret <- predict(m2.gbm.caret, newdata = test_p)
 p2.boost.caret
 
-table(Predicted=p2.boost.caret, Actual=test$P1Wins)
-sum(diag(table(p2.boost.caret, test$P1Wins)))/sum(table(p2.boost.caret, test$P1Wins)) #81%
-confusionMatrix(p2.boost.caret, as.factor(test$P1Wins))
+table(Predicted=p2.boost.caret, Actual=test_p$P1Wins)
+sum(diag(table(p2.boost.caret, test_p$P1Wins)))/sum(table(p2.boost.caret, test_p$P1Wins)) #76%
+
+confusionMatrix(p2.boost.caret, as.factor(test_p$P1Wins))
 
 
 ###########################
@@ -598,3 +633,9 @@ View(matches[which(is.na(matches$games_l)),c(1,2,12:14,42:44)])
 # Interestingly 293/14440 or 2% of matches the winner won fewer games than the loser
 # 370/14440 or 2.5% of matches the winner won the same number of games as the loser
 View(matches[which(matches$games_w <= matches$games_l & matches$RET==0),c(1:2,12:14,42:44)])
+
+
+wimbledon_2016 <- matches$tourney_index[matches$tourney_id=='2016-540'][1]
+wimbledon_2017 <- matches$tourney_index[matches$tourney_id=='2017-540'][1]
+us_open_2017 <- matches$tourney_index[matches$tourney_id=='2017-560'][1]
+us_open_2019 <- matches$tourney_index[matches$tourney_id=='2019-560'][1]
