@@ -18,20 +18,42 @@ rm(df_use)
 # Variable Engineering #
 ########################
 
-df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d", origin = "2015-01-01")
+df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
 
 matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
 matches <- matches[,c(11,19,5:7,1:4,26,24,25,27,12,14:15,20,22,23,28:46,48)]
 matches <- matches %>%
   rowwise() %>%
-  mutate(RET = sum(grepl("RET", unlist(str_split(score, " +"))))) %>%
-  mutate(score_count = length(unlist(str_split(score, "-|\\s")))) %>%
-  mutate(w_final_set = ifelse(RET==1, unlist(str_split(score, "-|\\s"))[score_count-2], NA)) %>%
-  mutate(l_final_set = ifelse(RET==1, unlist(str_split(score, "-|\\s"))[score_count-1], NA)) %>%
-  mutate(sets_completed = ifelse(RET==1, length(unlist(str_split(score, " +")))-2, 
-                              ifelse(score %in% c("W/O", "Walkover"), 0, length(unlist(str_split(score, " +"))))),
+  mutate(score = gsub("\\s*\\[", "(",score)) %>%
+  mutate(score = gsub("\\s*\\]", ")",score)) %>%
+  mutate(RET = sum(grepl("RET|DEF", unlist(str_split(score, " +")), ignore.case = TRUE))) %>%
+  mutate(sets_completed = ifelse(RET==1, sum(!grepl("^$",unlist(str_split(score, " +"))))-1, 
+                              ifelse(grepl("W/O|Walkover|In Progress", score), 0, sum(!grepl("^$", unlist(str_split(score, " +")))))),
                               .after = score) %>%
   mutate(Year = year(tourney_date), .after = match_num)
+
+matches$games_w <- NA
+matches$games_l <- NA
+for(i in 1:nrow(matches)){
+  games_w=0
+  games_l=0
+  
+    if(matches$sets_completed[i] > 0){
+        for(j in 1:matches$sets_completed[i]){
+          s1 <- unlist(str_split(matches$score[i], " +"))[j]
+          w1 <- as.numeric(unlist(str_split(s1, '-'))[1])
+          l1 <- unlist(str_split(s1, '-'))[2]
+          if(grepl("\\(\\d*",l1)){
+            l1 <- unlist(str_split(l1, '\\('))[1]
+          }
+          l1 <- as.numeric(l1)
+          games_w=games_w+w1
+          games_l=games_l+l1
+        }
+      matches$games_w[i]=games_w
+      matches$games_l[i]=games_l
+    }
+}
 
 matches$tourney_index <- 1
 k=1
@@ -165,14 +187,14 @@ summaryPlayers <- function() {
   playersToMax <- head(playersToMax[order(playersToMax$ranking,decreasing=TRUE),], n)
   return(playersToMax)
 }
-
+summaryPlayers()
 
 length(playersToElo) # 809 players
-names(playersToElo) # to view all players
+#names(playersToElo) # to view all players
 
 length(union(matches$winner_name, matches$loser_name)) # 809 players
 length(unique(c(unique(matches$winner_name), unique(matches$loser_name)))) # 809 players
-which(!(names(playersToElo) %in% ID)) # check for differences
+#which(!(names(playersToElo) %in% ID)) # check for differences
 
 
 matches %>% filter(tourney_level=="G") %>% group_by(tourney_name, tourney_date, tourney_id, tourney_index) %>% summarise(n())
@@ -557,10 +579,22 @@ model$L_Ace_sets[model$loser_name=='Christian Harrison'] <-
 
 
 
+# [10-8] indicates a 3rd set tie break for Davis cup
+# consider dropping Davis cup matches
+
+matches <- matches %>%
+  rowwise() %>%
+  mutate(score = gsub("\\s*\\[", "(",score)) %>%
+  mutate(score = gsub("\\s*\\]", ")",score)) %>%
+  mutate(RET = sum(grepl("RET", unlist(str_split(score, " +"))))) %>%
+  mutate(sets_completed = ifelse(RET==1, sum(!grepl("^$",unlist(str_split(score, " +"))))-1, 
+                                 ifelse(grepl("W/O|Walkover|In Progress", score), 0, sum(!grepl("^$", unlist(str_split(score, " +")))))),
+         .after = score) %>%
+  mutate(Year = year(tourney_date), .after = match_num)
 
 
+View(matches[which(is.na(matches$games_l)),c(1,2,12:14,42:44)])
 
-
-
-
-
+# Interestingly 293/14440 or 2% of matches the winner won fewer games than the loser
+# 370/14440 or 2.5% of matches the winner won the same number of games as the loser
+View(matches[which(matches$games_w <= matches$games_l & matches$RET==0),c(1:2,12:14,42:44)])
