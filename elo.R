@@ -1,26 +1,9 @@
-##########################
-## Load Packages and Data
-##########################
-library(dplyr)
-library(ggplot2)
-library(lubridate)
-library(scales)
-library(reshape2)
-library(car) #scatterplot matrix function
-library(broom) # augment() to extract dataframe from glm object
-
-library(readr)
-
-fileb <- 'C:/Users/blue_/Documents/Kaggle/atp_tennis/2014.csv'
-df1 <- read.csv(file=fileb) %>%
-  select(-EXW, -EXL, -LBW, -LBL, -SJW, -SJL)
-dim(df1)
+library(tidyverse)
 
 files = list.files(pattern="atp_matches_[^_]*.csv")
 
 matches_raw= do.call("rbind", lapply(files, function(x) read.csv(x, sep=",")))
 matches <- matches_raw[c("winner_name","loser_name","tourney_level","tourney_date","match_num")]
-#firstDate <- as.Date("1900-01-01")
 firstDate <- as.Date("2013-12-30")
 matches$tourney_date <- as.Date(as.character(matches$tourney_date),format='%Y%m%d', origin = "1900/01/01")
 
