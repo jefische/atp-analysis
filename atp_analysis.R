@@ -20,6 +20,9 @@ rm(df_use)
 
 df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
 
+#The first gsub is for I believe Davis Cup 3rd set 10-point tie breakers?
+#Not needed if dropping Davis Cup matches anyway.
+
 matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
 matches <- matches[,c(11,19,5:7,1:4,26,24,25,27,12,14:15,20,22,23,28:46,48)]
 matches <- matches %>%
@@ -55,9 +58,19 @@ for(i in 1:nrow(matches)){
     }
 }
 
-# Option to drop Davis cup matches
-drop <- which(grepl("Davis", matches$tourney_name)) #1225 matches (8% of total) 
+# Option to drop Davis cup matches and ATP Next Gen Finals matches
+drop <- which(grepl("Davis|ATP Next Gen Finals", matches$tourney_name)) #1241 matches (8% of total) 
 matches <- matches[-drop,]
+
+# Option to drop walkovers and matches in progress
+drop <- which(grepl('W/O|Walkover|In Progress', matches$score)) #77 additional matches
+matches <- matches[-drop,]
+
+# Option to drop Retired and Defaulted matches
+matches <- matches[matches$RET==0,] #386 additional matches
+
+# Drop 2 Australian Open matches that should have been listed as RET
+matches <- matches[!(matches$best_of==5 & matches$sets_completed <3),]
 
 matches$tourney_index <- 1
 k=1
@@ -90,15 +103,18 @@ matches$Wsets[matches$best_of==3 & matches$sets_completed %in% c(2,3)] <- 2
 matches$Wsets[matches$best_of==5 & matches$sets_completed %in% c(3,4,5)] <- 3
 
 matches$Lsets <- 0
-matches$Lsets[matches$best_of==3 & matches$sets_completed==1] <- 0
+#matches$Lsets[matches$best_of==3 & matches$sets_completed==1] <- 0
 matches$Lsets[matches$best_of==3 & matches$sets_completed==2] <- 0
 matches$Lsets[matches$best_of==3 & matches$sets_completed==3] <- 1
 matches$Lsets[matches$best_of==5 & matches$sets_completed==3] <- 0
 matches$Lsets[matches$best_of==5 & matches$sets_completed==4] <- 1
 matches$Lsets[matches$best_of==5 & matches$sets_completed==5] <- 2
 
-matches$Wsets[matches$RET==1] <- NA
-matches$Lsets[matches$RET==1] <- NA
+#matches$Wsets[matches$RET==1] <- NA
+#matches$Lsets[matches$RET==1] <- NA
+
+#Confirm sets won and lost equal total sets completed
+sum(matches$Wsets+matches$Lsets-matches$sets_completed) #sum to 0
 
 matches$P_Wsets <- NA
 matches$P_Wsets <- matches$Wsets/(matches$Wsets+matches$Lsets)
@@ -195,24 +211,13 @@ summaryPlayers <- function() {
 }
 summaryPlayers()
 
-length(playersToElo) # 809 players
+length(playersToElo) # 507 players
 #names(playersToElo) # to view all players
 
-length(union(matches$winner_name, matches$loser_name)) # 809 players
-length(unique(c(unique(matches$winner_name), unique(matches$loser_name)))) # 809 players
+length(union(matches$winner_name, matches$loser_name)) # 507 players
+length(unique(c(unique(matches$winner_name), unique(matches$loser_name)))) # 507 players
 #which(!(names(playersToElo) %in% ID)) # check for differences
 
-
-matches %>% filter(tourney_level=="G") %>% group_by(tourney_name, tourney_date, tourney_id, tourney_index) %>% summarise(n())
-
-# US Open 2015,   date = 2015-08-31, id = 2015-560, index = 113
-# US Open 2016,   date = 2016-08-29, id = 2016-560, index = 252
-# Wimbledon 2015, date = 2015-06-29, id = 2015-540, index = 72
-# Wimbledon 2016, date = 2016-06-27, id = 2016-540, index = 218
-
-p.tourney.id <- '2016-540'
-p.tourney.date <- as.Date('2016-06-27')
-p.tourney.index <- 218
 
 earliest = min(matches$tourney_index[matches$tourney_date > '2015-12-31'])
 latest = max(matches$tourney_index)
@@ -286,15 +291,15 @@ results <- matches[matches$tourney_index %in% doha_2016:tour_finals_2019,
                    c('winner_name', 'loser_name', 'tourney_date', 'tourney_name', 'match_num', 'tourney_id',
                      'tourney_index', 'surface', 'draw_size', 'best_of', 'winner_rank', 'loser_rank')]
 
-modeling_df <- Player_YOY_stats[Player_YOY_stats$tourney_index %in% doha_2016:tour_finals_2019,]
+#modeling_df <- Player_YOY_stats[Player_YOY_stats$tourney_index %in% doha_2016:tour_finals_2019,]
 
-results_for_modeling <- merge(results, modeling_df, 
+results_for_modeling <- merge(results, Player_YOY_stats, 
                               by.x = c("winner_name", "tourney_index", "tourney_name", "tourney_date"), 
                               by.y = c("Player", "tourney_index", "tourney_name", "tourney_date"), 
                               all.x = TRUE)
 names(results_for_modeling)[13:26] <- paste0("W_", names(results_for_modeling)[13:26])
 
-results_for_modeling <- merge(results_for_modeling, modeling_df, 
+results_for_modeling <- merge(results_for_modeling, Player_YOY_stats, 
                               by.x = c("loser_name", "tourney_index", "tourney_name", "tourney_date"), 
                               by.y = c("Player", "tourney_index", "tourney_name", "tourney_date"), 
                               all.x = TRUE)
@@ -348,14 +353,17 @@ r_for_modeling <- results_for_modeling %>%
 #wimbledon_2017 <- 372
 #us_open_2017 <- 385
 
-length(unique(r_for_modeling$tourney_index)) # 268 tournaments
+length(unique(r_for_modeling$tourney_index)) # 267 tournaments
 
 # Train on 75% or 201 tournaments (Doha 2016 (67) - ATP Next Gen Finals 2018 (267))
 atp_next_gen_2018 <- 267
 tour_finals_2018 <- 268
 
-train <- r_for_modeling[r_for_modeling$tourney_index %in% doha_2016:atp_next_gen_2018,]
-test <- r_for_modeling[r_for_modeling$tourney_index %in% tour_finals_2018:tour_finals_2019,]
+#train <- r_for_modeling[r_for_modeling$tourney_index %in% doha_2016:atp_next_gen_2018,]
+#test <- r_for_modeling[r_for_modeling$tourney_index %in% tour_finals_2018:tour_finals_2019,]
+
+train <- r_for_modeling[r_for_modeling$tourney_index %in% earliest:(earliest+200),]
+test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
 
 sapply(test, function(x) sum(is.na(x)))
 sapply(train, function(x) sum(is.na(x))) # drop records with missing data. Note glm() will do case wise deletion
@@ -395,11 +403,15 @@ library(caret) # train(), trainControl(), getModelInfo(), resamples()
 source('build_tree.R') # converts gbm.object to data.tree for plotting
 
 #case-wise deletion from glm()
-drop <- as.integer(m1$na.action)
-train <- train[-drop,]
+drop <- as.integer(m1$na.action) #116 records
+train_NA <- train[-drop,]
 
-m1.gbm <- gbm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets, 
-              data=train, 
+train_NA <- na.omit(train) #drop 334 NA cases
+
+set.seed(2016)
+m1.gbm <- gbm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets +
+                P1_Ace_Sets + P2_Ace_Sets, 
+              data=train_NA, 
               distribution = 'bernoulli',
               n.trees = 3000, 
               interaction.depth = 2,
@@ -419,13 +431,26 @@ plot(build_tree(m1.gbm, i.tree = 1))
 
 # Predictions are on the canonical scale, which for binomial is the log-odds scale. 
 # You can use the type="response" when predicting to put it on the probability scale.
-p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = 1204)
+p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = 1226)
 p.boost <- round(p.boost)
 
 table(Predicted=p.boost, Actual=test$P1Wins)
 sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins)) #
 
-#n.trees = 1204, accuracy = 76%
+#n.trees = 1226, accuracy = 79%
+
+m1.gbm$train.error # training error for each of the 3,000 iterations
+plot(x=1:3000, y=m1.gbm$train.error)
+
+m1.gbm$cv.error
+plot(x=1:3000, y=m1.gbm$cv.error)
+which(m1.gbm$cv.error==min(m1.gbm$cv.error)) # 1226 is lowest cv error
+
+m1.gbm$cv.fitted
+plot(x=1:7561, y=m1.gbm$cv.fitted)
+
+length(m1.gbm$trees) #can optionally view each of the 3000 trees
+
 
 ###################################
 # Modeling gbm with caret train() #
@@ -437,7 +462,7 @@ trainctrl <- trainControl(method = 'cv', number = 5, returnResamp = 'all')
 
 #Note for classification caret needs a factor variable
 m1.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets, 
-                      data=train, 
+                      data=train_NA, 
                       method = "gbm", 
                       distribution = "bernoulli",
                       trControl = trainctrl,
@@ -447,8 +472,8 @@ m1.gbm.caret
 summary(m1.gbm.caret)
 
 # With caret gbm object, predict will perform case-wise deletion on test set.
-# Thus to evaluate perform need to drop NA records
-test_p <- na.omit(test %>% select(P1Wins, P1_Elo, P2_Elo, P1_Rank, P2_Rank, P1_P_Win, P2_P_Win, P1_P_Sets, P2_P_Sets))
+# Thus to evaluate performance need to drop NA records
+test_p <- na.omit(test %>% select(P1Wins, P1_Elo, P2_Elo, P1_Rank, P2_Rank, P1_P_Win, P2_P_Win, P1_P_Sets, P2_P_Sets, P1_Ace_Sets, P2_Ace_Sets))
 
 # predict in this case creates a factor variable for some reason
 p.boost.caret <- predict(m1.gbm.caret, newdata = test_p, type = 'raw')
@@ -489,6 +514,18 @@ sum(diag(table(p2.boost.caret, test_p$P1Wins)))/sum(table(p2.boost.caret, test_p
 confusionMatrix(p2.boost.caret, as.factor(test_p$P1Wins))
 
 
+######################
+# Modeling xgboost() #
+######################
+library(xgboost)
+
+dtrain <- xgb.DMatrix()
+
+
+
+
+
+
 ###########################
 # Modeling randomForest() #
 ###########################
@@ -512,14 +549,6 @@ summary(resamples(list(gbm = m1.gbm.caret, random_forest = m1.rf.caret)))
 
 
 
-
-m2.gbm <- gbm(P1Wins~P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets + P1_Elo + P2_Elo, 
-              data=train, 
-              distribution = 'bernoulli', 
-              n.trees = 5000, 
-              interaction.depth = 2,
-              shrinkage = 0.01, 
-              cv.folds = 5)
 
 
 
@@ -558,7 +587,18 @@ m2.gbm <- gbm(P1Wins~P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_
 
 
 
+matches %>% filter(tourney_level=="G") %>% 
+  group_by(tourney_name, tourney_date, tourney_id, tourney_index) %>% 
+  summarise(n())
 
+# US Open 2015,   date = 2015-08-31, id = 2015-560, index = 113
+# US Open 2016,   date = 2016-08-29, id = 2016-560, index = 252
+# Wimbledon 2015, date = 2015-06-29, id = 2015-540, index = 72
+# Wimbledon 2016, date = 2016-06-27, id = 2016-540, index = 218
+
+p.tourney.id <- '2016-540'
+p.tourney.date <- as.Date('2016-06-27')
+p.tourney.index <- 218
 
 us_open_2016 <- matches %>% filter(tourney_id=='2016-560') %>%
   select(winner_name, loser_name, tourney_date, match_num, round, score, sets_completed, winner_rank, loser_rank)
