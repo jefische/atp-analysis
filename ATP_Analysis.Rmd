@@ -33,7 +33,7 @@ str(df_final)
 
 I'll convert dates to date objects, and calculate sets completed per match using the score variable. Also to run the ELO ratings code later on, we'll need to reorder the variables.
 
-```{r data1, echo=TRUE, eval=FALSE}
+```{r data1, echo=TRUE, eval=TRUE}
 df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
 
 matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
@@ -57,7 +57,7 @@ There are also a number of matches I would like to drop:
 
 465 walkover, in progress, retired, and defaulted matches (3.2% of all matches).
 
-```{r games_won, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r games_won, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
 matches$games_w <- NA
 matches$games_l <- NA
 for(i in 1:nrow(matches)){
@@ -114,7 +114,7 @@ matches$Lsets[matches$best_of==5 & matches$sets_completed==5] <- 2
 
 Now we'll create Elo ratings using a script which I've pulled from the link shown in the README.md file.
 
-```{r ELO, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r ELO, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
 playersToElo <- new.env(hash=TRUE)
 matchesCount <- new.env(hash=TRUE)
 firstDate <- as.Date("2015-01-04")
@@ -188,7 +188,7 @@ computeElo()
 
 We can use the summaryPlayers function to view the top 20 Elo ratings ending in 2019.
 
-```{r ELO_top20, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r ELO_top20, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
 n=20
 summaryPlayers <- function() {
   playersToMax <- data.frame(ranking=1500,meanr=1500,medianr=1500,name="Nobody")
@@ -210,7 +210,7 @@ summaryPlayers()
 
 Next I'll create a rolling year over year player statistical summary starting with calendar year 2015.
 
-```{r YOY, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r YOY, echo=TRUE, eval=TRUE, warning=FALSE, message=FALSE}
 earliest = min(matches$tourney_index[matches$tourney_date > '2015-12-31'])
 latest = max(matches$tourney_index)
 
@@ -280,7 +280,7 @@ for(idx in earliest:latest){
 
 We can then merge match results from Doha 2016 through the 2019 Tour Finals with the player year over year stats we are interested in.
 
-```{r tourney, echo=TRUE, eval=FALSE}
+```{r tourney, echo=TRUE, eval=TRUE}
 results <- matches[matches$tourney_index %in% earliest:latest, 
                    c('winner_name', 'loser_name', 'tourney_date', 'tourney_name', 'match_num', 'tourney_id',
                      'tourney_index', 'surface', 'draw_size', 'best_of', 'winner_rank', 'loser_rank')]
@@ -303,7 +303,7 @@ results_for_modeling <- results_for_modeling %>% arrange(tourney_index, match_nu
 
 To use our dataset for modeling, we'll randomly assign winners to Player 1 and Player 2 variables and split the data into training and testing sets with 75% of tournaments in the training set and the remaining 25% in the testing set.
 
-```{r randomize, echo=TRUE, eval=FALSE}
+```{r randomize, echo=TRUE, eval=TRUE}
 set.seed(2016)
 r_for_modeling <- results_for_modeling %>%
   mutate(assign = runif(dim(results_for_modeling)[1]),
@@ -340,11 +340,11 @@ test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
 
 ```
 
-## Modeling
+## Modeling and Results
 
 To begin with I'll start by fitting a logistic regression model and evaluating prediction accuracy on the test set.
 
-```{r skip_load, echo=TRUE}
+```{r skip_load, echo=FALSE, include=FALSE, eval=FALSE}
 earliest=67
 latest=333
 r_for_modeling <- read.csv(file='./git_data/r_for_modeling.csv')
@@ -364,9 +364,9 @@ table(Predicted=p.win, Actual=test$P1Wins)
 sum(diag(table(p.win, test$P1Wins)))/sum(table(p.win, test$P1Wins))
 ```
 
-Here we get an accuracy of 76.4%
+We get an accuracy of 76.4%, which looks pretty decent.
 
-Next evaluate performance from gbm()
+Next lets evaluate performance of a gradient boosted model. We'll use 5-fold cross validation to identify the number of trees, and set learning rate=0.05 and depth=2.
 
 ```{r gbm, echo=TRUE}
 #case-wise deletion from glm()
@@ -386,19 +386,26 @@ m1.gbm <- gbm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win
 
 best.iter = gbm.perf(m1.gbm, method = 'cv')
 best.iter
+```
 
-m1.gbm
+From the training and approximated testing error curves above, we can see the best number of trees is 1,073. We'll use this to make predictions on our test set.
+
+```{r gbm_results1, echo=TRUE}
 summary(m1.gbm)
+```
 
+The relative influence plot also shows that all of our features have a non-zero influence with Elo ratings yielding the best information gains. Next let's use this model to make predictions on our test set.
+
+```{r gbm_results2, echo=TRUE}
 p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = best.iter)
 p.boost <- round(p.boost)
 table(Predicted=p.boost, Actual=test$P1Wins)
 sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins))
 ```
 
-Our accuracy is improved to 78.8% with the best number of trees at 1073. We can try to improve the algorithm by providing a grid search for the learning rate, interaction depth, and number of trees.
+Our accuracy is improved to 78.8%. We can try to tune the model by providing a grid search for the learning rate, interaction depth, and number of trees, again using 5-fold cross validation.
 
-```{r gbm_caret, echo=TRUE, eval=FALSE}
+```{r gbm_caret, echo=TRUE, eval=TRUE}
 myGrid <- expand.grid(n.trees = c(150, 1200, 2000),
                       interaction.depth = c(1, 2, 3, 4, 5, 6),
                       shrinkage = c(0.01, 0.10, 0.15),
@@ -415,18 +422,31 @@ m2.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + 
                       verbose = FALSE, 
                       tuneGrid = myGrid)
 
+m2.gbm.caret$bestTune
+```
+
+The parameters yielding the best results set number of trees=150, depth=4, and the learning rate=0.15. 
+
+```{r gbm_care_results1, echo=TRUE}
+summary(m2.gbm.caret)
+```
+
+Similar to before the relative influence plot also shows that all of our features have a non-zero influence with Elo ratings yielding even higher information gains than before. Again let's apply the model to our testing set to evaluate accuracy.
+
+```{r gbm_caret_results2, echo=TRUE}
 # With caret gbm object, predict will perform case-wise deletion on test set.
 # Thus to evaluate performance need to drop NA records
 test_p <- na.omit(test %>% select(P1Wins, P1_Elo, P2_Elo, P1_Rank, P2_Rank, P1_P_Win, P2_P_Win, P1_P_Sets, P2_P_Sets, P1_Ace_Sets, P2_Ace_Sets))
 
 # predict in this case creates a factor variable for some reason
-p.boost.caret <- predict(m2.gbm.caret, newdata = test_p, type = 'raw')
+p2.boost.caret <- predict(m2.gbm.caret, newdata = test_p, type = 'raw')
 
-table(Predicted=p.boost.caret, Actual=test_p$P1Wins)
-sum(diag(table(p.boost.caret, test_p$P1Wins)))/sum(table(p.boost.caret, test_p$P1Wins))
+confusionMatrix(p2.boost.caret, as.factor(test_p$P1Wins))
 ```
 
+Our accuracy has improved slightly to 79.2%. 
 
-
+## Conclusion
+As mentioned in the introduction, there are several other provided metrics in the dataset which could be helpful in predicting ATP match outcomes. Most notably break-points, and serve percentages. Also, while we are focused on predictive accuracy in this analysis, future analysis could instead consider metrics related to confidence in our predictions.
 
 
