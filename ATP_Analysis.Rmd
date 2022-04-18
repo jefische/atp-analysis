@@ -2,7 +2,7 @@
 title: "ATP Analysis"
 author: "Jeremy Fischer"
 date: "4/15/2022"
-output: html_document
+output: github_document
 ---
 
 Load libraries and 2015-2019 data
@@ -394,7 +394,7 @@ sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins))
 
 Our accuracy is improved to 78.8% with the best number of trees at 1073. We can try to improve the algorithm by providing a grid search for the learning rate, interaction depth, and number of trees.
 
-```{r gbm_caret, echo=TRUE}
+```{r gbm_caret, echo=TRUE, eval=FALSE}
 myGrid <- expand.grid(n.trees = c(150, 1200, 2000),
                       interaction.depth = c(1, 2, 3, 4, 5, 6),
                       shrinkage = c(0.01, 0.10, 0.15),
