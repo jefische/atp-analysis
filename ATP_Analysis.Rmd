@@ -1,7 +1,9 @@
 ---
 title: "ATP Analysis"
-author: Jeremy Fischer
-date: 4/15/2022
+author: 
+  Jeremy Fischer
+date: 
+  4/15/2022
 output: 
   github_document:
     toc: true
@@ -352,7 +354,7 @@ train <- r_for_modeling[r_for_modeling$tourney_index %in% earliest:(earliest+200
 test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
 ```
 
-```{r glm, echo=TRUE}
+```{r glm, echo=TRUE, eval=TRUE}
 m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + 
             P1_P_Sets + P2_P_Sets + P1_Ace_Sets + P2_Ace_Sets, 
           data=train, family = "binomial")
@@ -368,7 +370,7 @@ We get an accuracy of 76.4%, which looks pretty decent.
 
 Next lets evaluate performance of a gradient boosted model. We'll use 5-fold cross validation to identify the number of trees, and set learning rate=0.05 and depth=2.
 
-```{r gbm, echo=TRUE}
+```{r gbm, echo=TRUE, eval=TRUE}
 #case-wise deletion from glm()
 drop <- as.integer(m1$na.action) #116 records
 train_NA <- train[-drop,]
@@ -388,15 +390,15 @@ best.iter = gbm.perf(m1.gbm, method = 'cv')
 best.iter
 ```
 
-From the training and approximated testing error curves above, we can see the best number of trees is 1,073. We'll use this to make predictions on our test set.
+From the training and approximated testing error curves above, we can see the best number of trees is 1,073.
 
-```{r gbm_results1, echo=TRUE}
+```{r gbm_results1, echo=TRUE, eval=TRUE}
 summary(m1.gbm)
 ```
 
-The relative influence plot also shows that all of our features have a non-zero influence with Elo ratings yielding the best information gains. Next let's use this model to make predictions on our test set.
+The relative influence plot also shows that all of our features have a non-zero influence with Elo ratings yielding the best information gains. Next let's evaluate model performance on the test set.
 
-```{r gbm_results2, echo=TRUE}
+```{r gbm_results2, echo=TRUE, eval=TRUE}
 p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = best.iter)
 p.boost <- round(p.boost)
 table(Predicted=p.boost, Actual=test$P1Wins)
@@ -425,15 +427,15 @@ m2.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + 
 m2.gbm.caret$bestTune
 ```
 
-The parameters yielding the best results set number of trees=150, depth=4, and the learning rate=0.15. 
+The parameters yielding the best results set number of trees=2000, depth=1, and the learning rate=0.10 
 
-```{r gbm_care_results1, echo=TRUE}
+```{r gbm_care_results1, echo=TRUE, eval=TRUE}
 summary(m2.gbm.caret)
 ```
 
 Similar to before the relative influence plot also shows that all of our features have a non-zero influence with Elo ratings yielding even higher information gains than before. Again let's apply the model to our testing set to evaluate accuracy.
 
-```{r gbm_caret_results2, echo=TRUE}
+```{r gbm_caret_results2, echo=TRUE, eval=TRUE}
 # With caret gbm object, predict will perform case-wise deletion on test set.
 # Thus to evaluate performance need to drop NA records
 test_p <- na.omit(test %>% select(P1Wins, P1_Elo, P2_Elo, P1_Rank, P2_Rank, P1_P_Win, P2_P_Win, P1_P_Sets, P2_P_Sets, P1_Ace_Sets, P2_Ace_Sets))
@@ -444,7 +446,7 @@ p2.boost.caret <- predict(m2.gbm.caret, newdata = test_p, type = 'raw')
 confusionMatrix(p2.boost.caret, as.factor(test_p$P1Wins))
 ```
 
-Our accuracy has improved slightly to 79.2%. 
+Our accuracy has improved slightly to 79.3%. 
 
 ## Conclusion
 As mentioned in the introduction, there are several other provided metrics in the dataset which could be helpful in predicting ATP match outcomes. Most notably break-points, and serve percentages. Also, while we are focused on predictive accuracy in this analysis, future analysis could instead consider metrics related to confidence in our predictions.
