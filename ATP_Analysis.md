@@ -3,7 +3,30 @@ ATP Analysis
 Jeremy Fischer
 4/15/2022
 
-Load libraries and 2015-2019 data
+  - [Introduction](#introduction)
+  - [Data manipulation and variable
+    engineering](#data-manipulation-and-variable-engineering)
+  - [Modeling](#modeling)
+
+## Introduction
+
+Each record of this data has the winner and loser of an ATP tennis
+match, along with some match statistics, played between 2015-2019. This
+analysis will focus on building a model to predict the outcome of a
+men’s ATP tennis match. Our response or label will be based on
+randomizing the winner of each match into a variable, say called Player
+One. Then for features I’ll focus on player rankings, player Elo
+ratings, and some aggregated summary statistics on each player.
+Specifically I would like to have percentage of matches won over the
+past year, percentage of sets won over the past year, and average number
+of aces per set for each player. There is other information available,
+such as first and second serve points won, break-points, break-points
+saved, etc. however, I will only focus on the features mentioned above.
+A future extension of this analysis could explore these additional data.
+
+## Data manipulation and variable engineering
+
+First let’s load our libraries and 2015-2019 ATP match data
 
 ``` r
 library(tidyverse)
@@ -73,47 +96,330 @@ str(df_final)
     ##  $ loser_rank        : int  220 123 21 72 110 71 16 84 201 25 ...
     ##  $ loser_rank_points : int  221 440 1730 691 505 700 2080 595 242 1365 ...
 
-## Data manipulation and variable engineering
+I’ll convert dates to date objects, and calculate sets completed per
+match using the score variable. Also to run the ELO ratings code later
+on, we’ll need to reorder the variables.
 
-Convert dates to date objects, and calculate sets completed per match
-using the score variable. Also reorder variables to run ELO ratings
-code.
+``` r
+df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
 
-Calculate games won per match for the winner and loser using the score
-variable.
+matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
+matches <- matches[,c(11,19,5:7,1:4,26,24,25,27,12,14:15,20,22,23,28:46,48)]
+matches <- matches %>%
+  rowwise() %>%
+  mutate(RET = sum(grepl("RET|DEF", unlist(str_split(score, " +")), ignore.case = TRUE))) %>%
+  mutate(sets_completed = ifelse(RET==1, sum(!grepl("^$",unlist(str_split(score, " +"))))-1, 
+                              ifelse(grepl("W/O|Walkover|In Progress", score), 0, sum(!grepl("^$", unlist(str_split(score, " +")))))),
+                              .after = score) %>%
+  mutate(Year = year(tourney_date), .after = match_num)
+```
 
-Drop 1,225 Davis Cup matches as these do not affect ranking and are team
+Next I’ll calculate games won per match for the winner and loser using
+the score variable, calculate sets won per match for each player, and
+create a tournament index variable to help identify tournaments across
+the 5 year period.
+
+There are also a number of matches I would like to drop:
+
+1,225 Davis Cup matches as these do not affect ranking and are team
 based tournaments (8% of all matches).
 
-Drop 16 ATP Next Gen Finals matches as these use a different scoring
-system. (0.1% of all matches).
+16 ATP Next Gen Finals matches as these use a different scoring system
+(0.1% of all matches).
 
-Drop 465 (3.2% of all matches) walkover, in progress, retired, and
-defaulted matches.
+465 walkover, in progress, retired, and defaulted matches (3.2% of all
+matches).
 
-Create a tournament index variable to easily identify tournaments across
-the 5 years.
+``` r
+matches$games_w <- NA
+matches$games_l <- NA
+for(i in 1:nrow(matches)){
+  games_w=0
+  games_l=0
+  
+    if(matches$sets_completed[i] > 0){
+        for(j in 1:matches$sets_completed[i]){
+          s1 <- unlist(str_split(matches$score[i], " +"))[j]
+          w1 <- as.numeric(unlist(str_split(s1, '-'))[1])
+          l1 <- unlist(str_split(s1, '-'))[2]
+          if(grepl("\\(\\d*",l1)){
+            l1 <- unlist(str_split(l1, '\\('))[1]
+          }
+          l1 <- as.numeric(l1)
+          games_w=games_w+w1
+          games_l=games_l+l1
+        }
+      matches$games_w[i]=games_w
+      matches$games_l[i]=games_l
+    }
+}
 
-Calculate sets won per match for both the winner and loser.
+drop <- which(grepl("Davis|ATP Next Gen Finals", matches$tourney_name))
+matches <- matches[-drop,]
 
-Create ELO ratings
+drop <- which(grepl('W/O|Walkover|In Progress', matches$score))
+matches <- matches[-drop,]
 
-Here is a result of the top 20 ELO ratings ending in 2019
+matches <- matches[matches$RET==0,]
+matches <- matches[!(matches$best_of==5 & matches$sets_completed <3),]
+
+matches$tourney_index <- 1
+k=1
+for (i in 2:nrow(matches)){
+  if (matches$tourney_id[i]!=matches$tourney_id[i-1]){
+    k=k+1
+  }
+  matches$tourney_index[i]=k
+}
+
+matches$Wsets <- 0
+matches$Wsets[matches$best_of==3 & matches$sets_completed %in% c(2,3)] <- 2
+matches$Wsets[matches$best_of==5 & matches$sets_completed %in% c(3,4,5)] <- 3
+
+matches$Lsets <- 0
+matches$Lsets[matches$best_of==3 & matches$sets_completed==2] <- 0
+matches$Lsets[matches$best_of==3 & matches$sets_completed==3] <- 1
+matches$Lsets[matches$best_of==5 & matches$sets_completed==3] <- 0
+matches$Lsets[matches$best_of==5 & matches$sets_completed==4] <- 1
+matches$Lsets[matches$best_of==5 & matches$sets_completed==5] <- 2
+```
+
+Now we’ll create Elo ratings using a script which I’ve pulled from the
+link shown in the README.md file.
+
+``` r
+playersToElo <- new.env(hash=TRUE)
+matchesCount <- new.env(hash=TRUE)
+firstDate <- as.Date("2015-01-04")
+
+# Run computeElo for elo results in an environment indexed by player names
+computeElo <- function() {
+  apply(matches,1,updateMatchesCountByRow)
+  apply(matches,1,computeEloByRow)
+  
+  return(playersToElo)
+}
+
+### Elo computation details ##################################################################################
+
+computeEloByRow <- function(row) {
+  updateElo(playersToElo, row[1], row[2], row[1], row[3],row[4],row[5])
+  return(0)
+}
+
+updateMatchesCountByRow <- function(row) {
+  updateMatchesCount(row[1],row[2])
+  return(0)
+}
+
+updateMatchesCount <- function (playerA, playerB) {
+  if(is.null(matchesCount[[playerA]])) { matchesCount[[playerA]] <- 0 }
+  if(is.null(matchesCount[[playerB]])) { matchesCount[[playerB]] <- 0 }
+  matchesCount[[playerA]] <- matchesCount[[playerA]]+1
+  matchesCount[[playerB]] <- matchesCount[[playerB]]+1
+}
+
+updateElo <- function (plToElo, playerA, playerB, winner, level, matchDate,matchNum) {
+  rA <- tail(plToElo[[playerA]]$ranking,n=1)
+  rB <- tail(plToElo[[playerB]]$ranking,n=1)
+  
+  if(is.null(rA)) {
+    plToElo[[playerA]] <- data.frame(ranking=1500, date=firstDate, num=0)
+    rA <- 1500
+  }
+  if(is.null(rB)) {
+    plToElo[[playerB]] <- data.frame(ranking=1500, date=firstDate, num=0)
+    rB <- 1500
+  }
+  
+  eA <- 1 / (1 + 10 ^ ((rB - rA)/400))
+  eB <- 1 / (1 + 10 ^ ((rA - rB)/400))
+  
+  if (winner==playerA) {
+    sA <- 1
+    sB <- 0
+  } else {
+    sA <- 0
+    sB <- 1
+  }
+  
+  kA <- 250/((matchesCount[[playerA]]+5)^0.4)
+  kB <- 250/((matchesCount[[playerB]]+5)^0.4)
+  k <- ifelse(level == "G", 1.1, 1)
+  
+  rA_new <- rA + (k*kA) * (sA-eA)
+  rB_new <- rB + (k*kB) * (sB-eB)
+  
+  plToElo[[playerA]] <- rbind(plToElo[[playerA]],data.frame(ranking=rA_new, date=matchDate, num=matchNum))
+  plToElo[[playerB]] <- rbind(plToElo[[playerB]],data.frame(ranking=rB_new, date=matchDate, num=matchNum))
+}
+
+#Elo starting from 2015
+computeElo()
+```
+
+We can use the summaryPlayers function to view the top 20 Elo ratings
+ending in 2019.
+
+``` r
+n=20
+summaryPlayers <- function() {
+  playersToMax <- data.frame(ranking=1500,meanr=1500,medianr=1500,name="Nobody")
+  for (pl in ls(playersToElo)) {
+    player <- playersToElo[[pl]]
+    ## player <- player[order(player$date,player$num,decreasing=TRUE),]
+    ## player <- player[!duplicated(player$date),]
+    ## player <- player[order(player$date,player$num,decreasing=FALSE),]
+    
+    newRow <- data.frame(ranking=max(player$ranking),meanr=mean(player$ranking),medianr=median(player$ranking),name=pl)
+    playersToMax <- rbind(playersToMax,newRow)
+  }
+  
+  playersToMax <- head(playersToMax[order(playersToMax$ranking,decreasing=TRUE),], n)
+  return(playersToMax)
+}
+summaryPlayers()
+```
 
 Next I’ll create a rolling year over year player statistical summary
 starting with calendar year 2015.
 
-Merge match results from Doha 2016 through the 2019 Tour Finals with
-player year over year stats.
+``` r
+earliest = min(matches$tourney_index[matches$tourney_date > '2015-12-31'])
+latest = max(matches$tourney_index)
 
-Next randomly assign winners to Player 1 and Player 2 variables and
-split the data into training and testing sets with 75% of tournaments in
-the training set and the remaining 25% in the testing set.
+Player_YOY_stats = data.frame()
+
+for(idx in earliest:latest){
+  #print(idx)
+  #Grab players who are in tournament idx
+  ID <- unique(c(unique(matches$winner_name[matches$tourney_index == idx]), 
+                 unique(matches$loser_name[matches$tourney_index == idx])))
+  
+  p.tourney.date <- matches$tourney_date[matches$tourney_index==idx][1]
+  p.tourney.name <- matches$tourney_name[matches$tourney_index==idx][1]
+  
+  #Build YOY stats for tournaments prior to idx
+  df_YOY <- data.frame()
+  c=1
+  for(i in ID){
+    df1 <- matches[(matches$winner_name==i | matches$loser_name==i) & matches$tourney_index < idx,] 
+  
+    if(dim(df1)[1] != 0){
+      df1 <- df1 %>% 
+        summarise(Player=i,
+                  Country=sample(c(winner_ioc[winner_name==i], loser_ioc[loser_name==i]),1),
+                  tourney_date,
+                  Age=floor(mean(c(winner_age[winner_name==i], loser_age[loser_name==i]), na.rm = TRUE)),
+                  Rank=mean(c(winner_rank[winner_name==i], loser_rank[loser_name==i]), na.rm = TRUE)) %>%
+        arrange(tourney_date)
+    
+      df1 <- df1[dim(df1)[1],]
+      p_stats <- matches[(matches$winner_name==i | matches$loser_name==i) & 
+                           matches$tourney_date >= p.tourney.date - 365 & matches$tourney_index < idx,
+                         c('winner_name', 'loser_name', 'tourney_date', 'match_num', 'tourney_name', 'sets_completed',
+                           'w_ace', 'l_ace', 'Wsets', 'Lsets')]
+    
+      names(df1)[3] <- "prior_tourney_date"
+      df1$tourney_name <- p.tourney.name
+      df1$tourney_date <- p.tourney.date
+      df1$Days_since <- df1$tourney_date-df1$prior_tourney_date
+      df1$tourney_index <- idx
+      df1$Matches_Played <- dim(p_stats)[1]
+      df1$Matches_Won <- sum(p_stats$winner_name==i)
+      df1$Matches_Lost <- sum(p_stats$loser_name==i)
+      df1$P_win <- df1$Matches_Won/df1$Matches_Played 
+      df1$Sets_Won <- sum(p_stats$Wsets[p_stats$winner_name==i], p_stats$Lsets[p_stats$loser_name==i], na.rm = TRUE)
+      df1$Sets_Lost <- sum(p_stats$Wsets, p_stats$Lsets, na.rm = TRUE) - df1$Sets_Won
+      df1$P_sets <- df1$Sets_Won/(df1$Sets_Won + df1$Sets_Lost)
+      df1$Ace_sets <- sum(p_stats$w_ace[p_stats$winner_name==i], p_stats$l_ace[p_stats$loser_name==i], na.rm = TRUE)/(df1$Sets_Won + df1$Sets_Lost)
+      df1$Elo <- tail(playersToElo[[i]]$ranking[playersToElo[[i]]$date <= df1$tourney_date],1)
+    
+      df_YOY <- rbind(df_YOY, df1)
+      c=c+1
+    }
+    else{
+      df1 <- data.frame(Player=i, Country=NA, prior_tourney_date=as.Date(NA), Age=NA, Rank=NA, tourney_name=p.tourney.name,
+                        tourney_date=p.tourney.date, Days_since=0, tourney_index=idx, Matches_Played=0, Matches_Won=0, 
+                        Matches_Lost=0, P_win=0, Sets_Won=0, Sets_Lost=0, P_sets=0, Ace_sets=0, Elo=1500)
+    
+      df_YOY <- rbind(df_YOY, df1)
+      c=c+1
+    }
+  }
+  Player_YOY_stats <- rbind(Player_YOY_stats, df_YOY)
+}
+```
+
+We can now merge match results from Doha 2016 through the 2019 Tour
+Finals with the player year over year stats we are interested in .
+
+``` r
+results <- matches[matches$tourney_index %in% earliest:latest, 
+                   c('winner_name', 'loser_name', 'tourney_date', 'tourney_name', 'match_num', 'tourney_id',
+                     'tourney_index', 'surface', 'draw_size', 'best_of', 'winner_rank', 'loser_rank')]
+
+results_for_modeling <- merge(results, Player_YOY_stats, 
+                              by.x = c("winner_name", "tourney_index", "tourney_name", "tourney_date"), 
+                              by.y = c("Player", "tourney_index", "tourney_name", "tourney_date"), 
+                              all.x = TRUE)
+names(results_for_modeling)[13:26] <- paste0("W_", names(results_for_modeling)[13:26])
+
+results_for_modeling <- merge(results_for_modeling, Player_YOY_stats, 
+                              by.x = c("loser_name", "tourney_index", "tourney_name", "tourney_date"), 
+                              by.y = c("Player", "tourney_index", "tourney_name", "tourney_date"), 
+                              all.x = TRUE)
+names(results_for_modeling)[27:40] <- paste0("L_", names(results_for_modeling)[27:40])
+
+results_for_modeling <- results_for_modeling[,c(5,1,4,3,6,7,2,8:15,17:29,31:40)] # Drop W_Rank(16) and L_Rank(30)
+results_for_modeling <- results_for_modeling %>% arrange(tourney_index, match_num)
+```
+
+To use our dataset for modeling, we’ll randomly assign winners to Player
+1 and Player 2 variables and split the data into training and testing
+sets with 75% of tournaments in the training set and the remaining 25%
+in the testing set.
+
+``` r
+set.seed(2016)
+r_for_modeling <- results_for_modeling %>%
+  mutate(assign = runif(dim(results_for_modeling)[1]),
+         Player1 = ifelse(assign <= .5, winner_name, loser_name),
+         Player2 = ifelse(assign > .5, winner_name, loser_name),
+         P1Wins = ifelse(Player1 == winner_name, 1, 0),
+         P1_Rank = ifelse(assign <= .5, winner_rank, loser_rank),
+         P2_Rank = ifelse(assign > .5, winner_rank, loser_rank),
+         P1_Country = ifelse(assign <= .5, W_Country, L_Country),
+         P2_Country = ifelse(assign > .5, W_Country, L_Country),
+         P1_Age = ifelse(assign <= .5, W_Age, L_Age),
+         P2_Age = ifelse(assign > .5, W_Age, L_Age),
+         P1_Matches_Played = ifelse(assign <= .5, W_Matches_Played, L_Matches_Played),
+         P2_Matches_Played = ifelse(assign > .5, W_Matches_Played, L_Matches_Played),
+         P1_Matches_Won = ifelse(assign <= .5, W_Matches_Won, L_Matches_Won),
+         P2_Matches_Won = ifelse(assign > .5, W_Matches_Won, L_Matches_Won),
+         P1_Matches_Lost = ifelse(assign <= .5, W_Matches_Lost, L_Matches_Lost),
+         P2_Matches_Lost = ifelse(assign > .5, W_Matches_Lost, L_Matches_Lost),
+         P1_P_Win = ifelse(assign <= .5, W_P_win, L_P_win),
+         P2_P_Win = ifelse(assign > .5, W_P_win, L_P_win),
+         P1_Ace_Sets = ifelse(assign <= .5, W_Ace_sets, L_Ace_sets),
+         P2_Ace_Sets = ifelse(assign > .5, W_Ace_sets, L_Ace_sets),
+         P1_P_Sets = ifelse(assign <= .5, W_P_sets, L_P_sets),
+         P2_P_Sets = ifelse(assign > .5, W_P_sets, L_P_sets),
+         P1_Elo = ifelse(assign <= .5, W_Elo, L_Elo),
+         P2_Elo = ifelse(assign > .5, W_Elo, L_Elo)) %>%
+  select(Player1, Player2, P1Wins, tourney_date, tourney_name, tourney_index, tourney_id, match_num, 
+         P1_Rank, P2_Rank, P1_Country,  P1_Age, P1_Matches_Played, P1_Matches_Won, 
+         P1_Matches_Lost, P1_P_Win, P1_P_Sets, P1_Ace_Sets, P1_Elo, P2_Country,P2_Age,
+         P2_Matches_Played, P2_Matches_Won, P2_Matches_Lost, P2_P_Win, P2_P_Sets, P2_Ace_Sets, P2_Elo)
+
+train <- r_for_modeling[r_for_modeling$tourney_index %in% earliest:(earliest+200),]
+test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
+```
 
 ## Modeling
 
-Start by fitting a logistic regression model and evaluating prediction
-accuracy on the test set.
+To begin with I’ll start by fitting a logistic regression model and
+evaluating prediction accuracy on the test set.
 
 ``` r
 earliest=67
