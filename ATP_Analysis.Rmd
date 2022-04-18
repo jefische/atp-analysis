@@ -1,11 +1,19 @@
 ---
 title: "ATP Analysis"
-author: "Jeremy Fischer"
-date: "4/15/2022"
-output: github_document
+author: Jeremy Fischer
+date: 4/15/2022
+output: 
+  github_document:
+    toc: true
+    toc_depth: 2
 ---
 
-Load libraries and 2015-2019 data
+## Introduction
+Each record of this data has the winner and loser of an ATP tennis match, along with some match statistics, played between 2015-2019. This analysis will focus on building a model to predict the outcome of a men's ATP tennis match. Our response or label will be based on randomizing the winner of each match into a variable, say called Player One. Then for features I'll focus on player rankings, player Elo ratings, and some aggregated summary statistics on each player. Specifically I would like to have percentage of matches won over the past year, percentage of sets won over the past year, and average number of aces per set for each player. There is other information available, such as first and second serve points won, break-points, break-points saved, etc. however, I will only focus on the features mentioned above. A future extension of this analysis could explore these additional data.
+
+## Data manipulation and variable engineering
+
+First let's load our libraries and 2015-2019 ATP match data
 ```{r setup, include=TRUE, warning=FALSE, message=FALSE}
 library(tidyverse)
 library(lubridate)
@@ -23,11 +31,9 @@ for(i in 2015:2019){
 str(df_final)
 ```
 
-## Data manipulation and variable engineering
+I'll convert dates to date objects, and calculate sets completed per match using the score variable. Also to run the ELO ratings code later on, we'll need to reorder the variables.
 
-Convert dates to date objects, and calculate sets completed per match using the score variable. Also reorder variables to run ELO ratings code.
-
-```{r data1, echo=FALSE, eval=FALSE}
+```{r data1, echo=TRUE, eval=FALSE}
 df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
 
 matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
@@ -41,19 +47,17 @@ matches <- matches %>%
   mutate(Year = year(tourney_date), .after = match_num)
 ```
 
-Calculate games won per match for the winner and loser using the score variable. 
+Next I'll calculate games won per match for the winner and loser using the score variable, calculate sets won per match for each player, and create a tournament index variable to help identify tournaments across the 5 year period.
 
-Drop 1,225 Davis Cup matches as these do not affect ranking and are team based tournaments (8% of all matches). 
+There are also a number of matches I would like to drop:
 
-Drop 16 ATP Next Gen Finals matches as these use a different scoring system. (0.1% of all matches). 
+1,225 Davis Cup matches as these do not affect ranking and are team based tournaments (8% of all matches). 
 
-Drop 465 (3.2% of all matches) walkover, in progress, retired, and defaulted matches.
+16 ATP Next Gen Finals matches as these use a different scoring system (0.1% of all matches). 
 
-Create a tournament index variable to easily identify tournaments across the 5 years.
+465 walkover, in progress, retired, and defaulted matches (3.2% of all matches).
 
-Calculate sets won per match for both the winner and loser.
-
-```{r games_won, echo=FALSE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r games_won, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
 matches$games_w <- NA
 matches$games_l <- NA
 for(i in 1:nrow(matches)){
@@ -108,9 +112,9 @@ matches$Lsets[matches$best_of==5 & matches$sets_completed==5] <- 2
 
 ```
 
-Create ELO ratings
+Now we'll create Elo ratings using a script which I've pulled from the link shown in the README.md file.
 
-```{r ELO, echo=FALSE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r ELO, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
 playersToElo <- new.env(hash=TRUE)
 matchesCount <- new.env(hash=TRUE)
 firstDate <- as.Date("2015-01-04")
@@ -182,9 +186,9 @@ computeElo()
 
 ```
 
-Here is a result of the top 20 ELO ratings ending in 2019
+We can use the summaryPlayers function to view the top 20 Elo ratings ending in 2019.
 
-```{r ELO_top20, echo=FALSE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r ELO_top20, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
 n=20
 summaryPlayers <- function() {
   playersToMax <- data.frame(ranking=1500,meanr=1500,medianr=1500,name="Nobody")
@@ -206,7 +210,7 @@ summaryPlayers()
 
 Next I'll create a rolling year over year player statistical summary starting with calendar year 2015.
 
-```{r YOY, echo=FALSE, eval=FALSE, warning=FALSE, message=FALSE}
+```{r YOY, echo=TRUE, eval=FALSE, warning=FALSE, message=FALSE}
 earliest = min(matches$tourney_index[matches$tourney_date > '2015-12-31'])
 latest = max(matches$tourney_index)
 
@@ -274,9 +278,9 @@ for(idx in earliest:latest){
 
 ```
 
-Merge match results from Doha 2016 through the 2019 Tour Finals with player year over year stats.
+We can then merge match results from Doha 2016 through the 2019 Tour Finals with the player year over year stats we are interested in.
 
-```{r tourney, echo=FALSE, eval=FALSE}
+```{r tourney, echo=TRUE, eval=FALSE}
 results <- matches[matches$tourney_index %in% earliest:latest, 
                    c('winner_name', 'loser_name', 'tourney_date', 'tourney_name', 'match_num', 'tourney_id',
                      'tourney_index', 'surface', 'draw_size', 'best_of', 'winner_rank', 'loser_rank')]
@@ -297,9 +301,9 @@ results_for_modeling <- results_for_modeling[,c(5,1,4,3,6,7,2,8:15,17:29,31:40)]
 results_for_modeling <- results_for_modeling %>% arrange(tourney_index, match_num)
 ```
 
-Next randomly assign winners to Player 1 and Player 2 variables and split the data into training and testing sets with 75% of tournaments in the training set and the remaining 25% in the testing set.
+To use our dataset for modeling, we'll randomly assign winners to Player 1 and Player 2 variables and split the data into training and testing sets with 75% of tournaments in the training set and the remaining 25% in the testing set.
 
-```{r randomize, echo=FALSE, eval=FALSE}
+```{r randomize, echo=TRUE, eval=FALSE}
 set.seed(2016)
 r_for_modeling <- results_for_modeling %>%
   mutate(assign = runif(dim(results_for_modeling)[1]),
@@ -338,7 +342,7 @@ test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
 
 ## Modeling
 
-Start by fitting a logistic regression model and evaluating prediction accuracy on the test set.
+To begin with I'll start by fitting a logistic regression model and evaluating prediction accuracy on the test set.
 
 ```{r skip_load, echo=TRUE}
 earliest=67
