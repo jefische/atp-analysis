@@ -27,8 +27,8 @@ matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
 matches <- matches[,c(11,19,5:7,1:4,26,24,25,27,12,14:15,20,22,23,28:46,48)]
 matches <- matches %>%
   rowwise() %>%
-  mutate(score = gsub("\\s*\\[", "(",score)) %>%
-  mutate(score = gsub("\\s*\\]", ")",score)) %>%
+#  mutate(score = gsub("\\s*\\[", "(",score)) %>%
+#  mutate(score = gsub("\\s*\\]", ")",score)) %>%
   mutate(RET = sum(grepl("RET|DEF", unlist(str_split(score, " +")), ignore.case = TRUE))) %>%
   mutate(sets_completed = ifelse(RET==1, sum(!grepl("^$",unlist(str_split(score, " +"))))-1, 
                               ifelse(grepl("W/O|Walkover|In Progress", score), 0, sum(!grepl("^$", unlist(str_split(score, " +")))))),
@@ -385,7 +385,7 @@ m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win +
           data=train, family = "binomial")
 summary(m1)
 
-p.glm <- predict(m1, newdata=test, type='response')
+p.glm <- predict(m1, newdata=test, type = 'response')
 p.win <- round(p.glm)
 
 table(Predicted=p.win, Actual=test$P1Wins)
@@ -394,6 +394,7 @@ sum(diag(table(p.win, test$P1Wins)))/sum(table(p.win, test$P1Wins))
 # Elo 72% accuracy
 # Elo + ranking 72% accuracy
 # Elo + ranking + PWin + PSets 75% accuracy
+# Elo + ranking + PWin + PSets + PAces 76.4% accuracy
 
 ##################
 # Modeling gbm() #
@@ -423,28 +424,28 @@ m1.gbm
 summary(m1.gbm) # will not work if P1Wins is a factor, must be an integer for distribution='bernoulli'
 
 #Best num of iterations
-best.iter = gbm.perf(m1.gbm, method = 'OOB') #recommends 275
-best.iter = gbm.perf(m1.gbm, method = 'cv') #need cv.folds arg >1 in gbm() call for this. recommends 1204
+best.iter = gbm.perf(m1.gbm, method = 'OOB') #recommends 442
+best.iter = gbm.perf(m1.gbm, method = 'cv') #need cv.folds arg >1 in gbm() call for this. recommends 1073
 
 print(pretty.gbm.tree(m1.gbm, i.tree = 1))
 plot(build_tree(m1.gbm, i.tree = 1))
 
 # Predictions are on the canonical scale, which for binomial is the log-odds scale. 
 # You can use the type="response" when predicting to put it on the probability scale.
-p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = 1226)
+p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = 1073)
 p.boost <- round(p.boost)
 
 table(Predicted=p.boost, Actual=test$P1Wins)
 sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins)) #
 
-#n.trees = 1226, accuracy = 79%
+#n.trees = 1073, accuracy = 78.8%
 
 m1.gbm$train.error # training error for each of the 3,000 iterations
 plot(x=1:3000, y=m1.gbm$train.error)
 
 m1.gbm$cv.error
 plot(x=1:3000, y=m1.gbm$cv.error)
-which(m1.gbm$cv.error==min(m1.gbm$cv.error)) # 1226 is lowest cv error
+which(m1.gbm$cv.error==min(m1.gbm$cv.error)) # 1073 is lowest cv error
 
 m1.gbm$cv.fitted
 plot(x=1:7561, y=m1.gbm$cv.fitted)
