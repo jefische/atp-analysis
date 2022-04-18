@@ -6,7 +6,8 @@ Jeremy Fischer
   - [Introduction](#introduction)
   - [Data manipulation and variable
     engineering](#data-manipulation-and-variable-engineering)
-  - [Modeling](#modeling)
+  - [Modeling and Results](#modeling-and-results)
+  - [Conclusion](#conclusion)
 
 ## Introduction
 
@@ -258,6 +259,8 @@ updateElo <- function (plToElo, playerA, playerB, winner, level, matchDate,match
 computeElo()
 ```
 
+    ## <environment: 0x000000002b17be98>
+
 We can use the summaryPlayers function to view the top 20 Elo ratings
 ending in 2019.
 
@@ -280,6 +283,28 @@ summaryPlayers <- function() {
 }
 summaryPlayers()
 ```
+
+    ##      ranking    meanr  medianr                  name
+    ## 405 2115.684 1884.577 1883.470          Rafael Nadal
+    ## 58  2097.256 1872.745 1869.492           Andy Murray
+    ## 374 2090.183 1948.058 1990.512        Novak Djokovic
+    ## 424 2064.740 1913.954 1972.842         Roger Federer
+    ## 116 1959.904 1693.412 1674.948       Daniil Medvedev
+    ## 257 1942.996 1786.620 1810.568 Juan Martin del Potro
+    ## 267 1920.929 1797.538 1816.713         Kei Nishikori
+    ## 131 1914.782 1725.929 1751.172         Dominic Thiem
+    ## 449 1898.089 1687.036 1731.675    Stefanos Tsitsipas
+    ## 34  1892.536 1729.143 1767.062      Alexander Zverev
+    ## 351 1880.406 1754.624 1779.943          Milos Raonic
+    ## 241 1880.081 1722.719 1728.111    Jo-Wilfried Tsonga
+    ## 196 1859.705 1677.020 1674.018       Grigor Dimitrov
+    ## 326 1856.413 1643.063 1608.773     Matteo Berrettini
+    ## 445 1856.336 1743.447 1756.920         Stan Wawrinka
+    ## 269 1852.323 1674.020 1677.415        Kevin Anderson
+    ## 359 1845.473 1728.279 1755.064          Nick Kyrgios
+    ## 311 1843.300 1709.664 1723.925           Marin Cilic
+    ## 178 1831.229 1702.008 1706.415          Gael Monfils
+    ## 266 1823.022 1645.811 1651.719       Karen Khachanov
 
 Next I’ll create a rolling year over year player statistical summary
 starting with calendar year 2015.
@@ -351,8 +376,8 @@ for(idx in earliest:latest){
 }
 ```
 
-We can now merge match results from Doha 2016 through the 2019 Tour
-Finals with the player year over year stats we are interested in .
+We can then merge match results from Doha 2016 through the 2019 Tour
+Finals with the player year over year stats we are interested in.
 
 ``` r
 results <- matches[matches$tourney_index %in% earliest:latest, 
@@ -416,18 +441,10 @@ train <- r_for_modeling[r_for_modeling$tourney_index %in% earliest:(earliest+200
 test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
 ```
 
-## Modeling
+## Modeling and Results
 
 To begin with I’ll start by fitting a logistic regression model and
 evaluating prediction accuracy on the test set.
-
-``` r
-earliest=67
-latest=333
-r_for_modeling <- read.csv(file='./git_data/r_for_modeling.csv')
-train <- r_for_modeling[r_for_modeling$tourney_index %in% earliest:(earliest+200),]
-test <- r_for_modeling[r_for_modeling$tourney_index %in% (earliest+201):latest,]
-```
 
 ``` r
 m1 <- glm(P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + P1_P_Win + P2_P_Win + 
@@ -451,9 +468,11 @@ sum(diag(table(p.win, test$P1Wins)))/sum(table(p.win, test$P1Wins))
 
     ## [1] 0.7640404
 
-Here we get an accuracy of 76.4%
+We get an accuracy of 76.4%, which looks pretty decent.
 
-Next evaluate performance from gbm()
+Next lets evaluate performance of a gradient boosted model. We’ll use
+5-fold cross validation to identify the number of trees, and set
+learning rate=0.05 and depth=2.
 
 ``` r
 #case-wise deletion from glm()
@@ -482,25 +501,14 @@ best.iter
 
     ## [1] 1073
 
-``` r
-m1.gbm
-```
-
-    ## gbm(formula = P1Wins ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + 
-    ##     P1_P_Win + P2_P_Win + P1_P_Sets + P2_P_Sets + P1_Ace_Sets + 
-    ##     P2_Ace_Sets, distribution = "bernoulli", data = train_NA, 
-    ##     n.trees = 3000, interaction.depth = 2, shrinkage = 0.05, 
-    ##     cv.folds = 5, verbose = FALSE)
-    ## A gradient boosted model with bernoulli loss function.
-    ## 3000 iterations were performed.
-    ## The best cross-validation iteration was 1073.
-    ## There were 10 predictors of which 10 had non-zero influence.
+From the training and approximated testing error curves above, we can
+see the best number of trees is 1,073.
 
 ``` r
 summary(m1.gbm)
 ```
 
-![](ATP_Analysis_files/figure-gfm/gbm-2.png)<!-- -->
+![](ATP_Analysis_files/figure-gfm/gbm_results1-1.png)<!-- -->
 
     ##                     var   rel.inf
     ## P2_Elo           P2_Elo 29.041891
@@ -514,6 +522,10 @@ summary(m1.gbm)
     ## P1_Rank         P1_Rank  4.067302
     ## P1_P_Sets     P1_P_Sets  3.455294
 
+The relative influence plot also shows that all of our features have a
+non-zero influence with Elo ratings yielding the best information gains.
+Next let’s evaluate model performance on the test set.
+
 ``` r
 p.boost <- predict(m1.gbm, newdata = test, type = 'response', n.trees = best.iter)
 p.boost <- round(p.boost)
@@ -522,18 +534,18 @@ table(Predicted=p.boost, Actual=test$P1Wins)
 
     ##          Actual
     ## Predicted    0    1
-    ##         0 1010  272
-    ##         1  263  985
+    ##         0 1008  272
+    ##         1  265  985
 
 ``` r
 sum(diag(table(p.boost, test$P1Wins)))/sum(table(p.boost, test$P1Wins))
 ```
 
-    ## [1] 0.7885375
+    ## [1] 0.787747
 
-Our accuracy is improved to 78.8% with the best number of trees at 1073.
-We can try to improve the algorithm by providing a grid search for the
-learning rate, interaction depth, and number of trees.
+Our accuracy is improved to 78.8%. We can try to tune the model by
+providing a grid search for the learning rate, interaction depth, and
+number of trees, again using 5-fold cross validation.
 
 ``` r
 myGrid <- expand.grid(n.trees = c(150, 1200, 2000),
@@ -552,13 +564,83 @@ m2.gbm.caret <- train(as.factor(P1Wins) ~ P1_Elo + P2_Elo + P1_Rank + P2_Rank + 
                       verbose = FALSE, 
                       tuneGrid = myGrid)
 
+m2.gbm.caret$bestTune
+```
+
+    ##    n.trees interaction.depth shrinkage n.minobsinnode
+    ## 21    2000                 1       0.1             10
+
+The parameters yielding the best results set number of trees=2000,
+depth=1, and the learning rate=0.10
+
+``` r
+summary(m2.gbm.caret)
+```
+
+![](ATP_Analysis_files/figure-gfm/gbm_care_results1-1.png)<!-- -->
+
+    ##                     var   rel.inf
+    ## P2_Elo           P2_Elo 34.134575
+    ## P1_Elo           P1_Elo 32.730053
+    ## P2_P_Win       P2_P_Win  6.850504
+    ## P1_P_Win       P1_P_Win  5.848522
+    ## P1_Ace_Sets P1_Ace_Sets  4.719455
+    ## P2_Ace_Sets P2_Ace_Sets  4.631545
+    ## P2_P_Sets     P2_P_Sets  3.196952
+    ## P1_Rank         P1_Rank  2.995759
+    ## P2_Rank         P2_Rank  2.699193
+    ## P1_P_Sets     P1_P_Sets  2.193443
+
+Similar to before the relative influence plot also shows that all of our
+features have a non-zero influence with Elo ratings yielding even higher
+information gains than before. Again let’s apply the model to our
+testing set to evaluate accuracy.
+
+``` r
 # With caret gbm object, predict will perform case-wise deletion on test set.
 # Thus to evaluate performance need to drop NA records
 test_p <- na.omit(test %>% select(P1Wins, P1_Elo, P2_Elo, P1_Rank, P2_Rank, P1_P_Win, P2_P_Win, P1_P_Sets, P2_P_Sets, P1_Ace_Sets, P2_Ace_Sets))
 
 # predict in this case creates a factor variable for some reason
-p.boost.caret <- predict(m2.gbm.caret, newdata = test_p, type = 'raw')
+p2.boost.caret <- predict(m2.gbm.caret, newdata = test_p, type = 'raw')
 
-table(Predicted=p.boost.caret, Actual=test_p$P1Wins)
-sum(diag(table(p.boost.caret, test_p$P1Wins)))/sum(table(p.boost.caret, test_p$P1Wins))
+confusionMatrix(p2.boost.caret, as.factor(test_p$P1Wins))
 ```
+
+    ## Confusion Matrix and Statistics
+    ## 
+    ##           Reference
+    ## Prediction    0    1
+    ##          0 1002  269
+    ##          1  243  961
+    ##                                           
+    ##                Accuracy : 0.7931          
+    ##                  95% CI : (0.7766, 0.8089)
+    ##     No Information Rate : 0.503           
+    ##     P-Value [Acc > NIR] : <2e-16          
+    ##                                           
+    ##                   Kappa : 0.5862          
+    ##                                           
+    ##  Mcnemar's Test P-Value : 0.2692          
+    ##                                           
+    ##             Sensitivity : 0.8048          
+    ##             Specificity : 0.7813          
+    ##          Pos Pred Value : 0.7884          
+    ##          Neg Pred Value : 0.7982          
+    ##              Prevalence : 0.5030          
+    ##          Detection Rate : 0.4048          
+    ##    Detection Prevalence : 0.5135          
+    ##       Balanced Accuracy : 0.7931          
+    ##                                           
+    ##        'Positive' Class : 0               
+    ## 
+
+Our accuracy has improved slightly to 79.3%.
+
+## Conclusion
+
+As mentioned in the introduction, there are several other provided
+metrics in the dataset which could be helpful in predicting ATP match
+outcomes. Most notably break-points, and serve percentages. Also, while
+we are focused on predictive accuracy in this analysis, future analysis
+could instead consider metrics related to confidence in our predictions.
