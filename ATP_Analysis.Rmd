@@ -35,7 +35,7 @@ str(df_final)
 
 I'll convert dates to date objects, and calculate sets completed per match using the score variable. Also to run the ELO ratings code later on, we'll need to reorder the variables.
 
-```{r data1, echo=TRUE, eval=TRUE}
+```{r data_wrangling, echo=TRUE, eval=TRUE}
 df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
 
 matches <- df_final %>% arrange(tourney_date, tourney_id, match_num)
