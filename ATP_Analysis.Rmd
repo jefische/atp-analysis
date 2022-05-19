@@ -33,7 +33,7 @@ for(i in 2015:2019){
 str(df_final)
 ```
 
-I'll convert dates to date objects, and calculate sets completed per match using the score variable. Also to run the ELO ratings code later on, we'll need to reorder the variables.
+I'll convert dates to date objects, and calculate sets completed per match using the score variable. Also to run the Elo ratings code later on, we'll need to reorder the variables.
 
 ```{r data_wrangling, echo=TRUE, eval=TRUE}
 df_final$tourney_date <- as.Date.character(df_final$tourney_date, "%Y%m%d")
