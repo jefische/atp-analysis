@@ -98,7 +98,7 @@ str(df_final)
     ##  $ loser_rank_points : int  221 440 1730 691 505 700 2080 595 242 1365 ...
 
 I’ll convert dates to date objects, and calculate sets completed per
-match using the score variable. Also to run the ELO ratings code later
+match using the score variable. Also to run the Elo ratings code later
 on, we’ll need to reorder the variables.
 
 ``` r
